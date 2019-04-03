@@ -1,4 +1,4 @@
-The OpenIGTLink Library
+The OpenIGTLink Library - fork
 =======================
 
 * This project provides a C/C++ implementation of the OpenIGTLink protocol defined in [OpenIGTLink Web Page](http://openigtlink.org/). 

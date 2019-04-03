@@ -1,16 +1,19 @@
 /*=========================================================================
 
-  Program:   Open IGT Link -- Example for Data Receiving Server Program
-  Module:    $RCSfile: $
-  Language:  C++
-  Date:      $Date: $
-  Version:   $Revision: $
+Program:   Open IGT Link -- Example for Data Receiving Server Program
+Module:    $RCSfile: $
+Language:  C++
+Date:      $Date: $
+Version:   $Revision: $
 
-  Copyright (c) Insight Software Consortium. All rights reserved.
+Copyright (c) Insight Software Consortium. All rights reserved.
 
-  This software is distributed WITHOUT ANY WARRANTY; without even
-  the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
-  PURPOSE.  See the above copyright notices for more information.
+This software is distributed WITHOUT ANY WARRANTY; without even
+the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
+PURPOSE.  See the above copyright notices for more information.
+
+
+
 
 =========================================================================*/
 
@@ -19,6 +22,8 @@
 #include <math.h>
 #include <cstdlib>
 #include <cstring>
+
+#include <vector>
 
 #include "igtlOSUtil.h"
 #include "igtlMessageHeader.h"
@@ -43,12 +48,41 @@ int ReceiveImage(igtl::Socket * socket, igtl::MessageHeader * header);
 int ReceiveStatus(igtl::Socket * socket, igtl::MessageHeader * header);
 
 #if OpenIGTLink_PROTOCOL_VERSION >= 2
-int ReceivePoint(igtl::Socket * socket, igtl::MessageHeader * header);
+int ReceivePoint(igtl::Socket * socket, igtl::MessageHeader * header, std::vector<igtl::PointElement::Pointer> &points);
 int ReceiveTrajectory(igtl::Socket * socket, igtl::MessageHeader::Pointer& header);
 int ReceiveString(igtl::Socket * socket, igtl::MessageHeader * header);
 int ReceiveBind(igtl::Socket * socket, igtl::MessageHeader * header);
 int ReceiveCapability(igtl::Socket * socket, igtl::MessageHeader * header);
 #endif //OpenIGTLink_PROTOCOL_VERSION >= 2
+
+bool send_back(igtl::Socket::Pointer socket, std::vector<igtl::PointElement::Pointer> points) {
+
+	if (points.size() == 0) {
+		return false;
+	}
+
+		igtl::Sleep(200);
+	
+		igtl::PointMessage::Pointer pointMsg;
+		pointMsg = igtl::PointMessage::New();
+		pointMsg->SetDeviceName("NowySerwer");
+
+		for (igtl::PointElement::Pointer point : points) {
+			igtlFloat32 pos[3];
+			point->GetPosition(pos);
+			for (int i = 0; i < 3; i++) {
+				pos[i] = -pos[i];
+			}
+			point->SetPosition(pos);
+			pointMsg->AddPointElement(point);
+		}
+
+		pointMsg->Pack();
+
+		socket->Send(pointMsg->GetPackPointer(), pointMsg->GetPackSize());
+	
+	return true;
+}
 
 int main(int argc, char* argv[])
 {
@@ -63,7 +97,7 @@ int main(int argc, char* argv[])
     exit(0);
     }
 
-  int    port     = atoi(argv[1]);
+  int port = atoi(argv[1]);
 
   igtl::ServerSocket::Pointer serverSocket;
   serverSocket = igtl::ServerSocket::New();
@@ -127,6 +161,8 @@ int main(int argc, char* argv[])
                   << sec << "." << std::setw(9) << std::setfill('0') 
                   << nanosec << std::endl;
 
+		std::vector<igtl::PointElement::Pointer> points;
+
         // Check data type and receive data body
         if (strcmp(headerMsg->GetDeviceType(), "TRANSFORM") == 0)
           {
@@ -147,7 +183,7 @@ int main(int argc, char* argv[])
 #if OpenIGTLink_PROTOCOL_VERSION >= 2
         else if (strcmp(headerMsg->GetDeviceType(), "POINT") == 0)
           {
-          ReceivePoint(socket, headerMsg);
+          ReceivePoint(socket, headerMsg, points);
           }
         else if (strcmp(headerMsg->GetDeviceType(), "TRAJ") == 0)
           {
@@ -173,13 +209,15 @@ int main(int argc, char* argv[])
           std::cerr << "Size : " << headerMsg->GetBodySizeToRead() << std::endl;
           socket->Skip(headerMsg->GetBodySizeToRead(), 0);
           }
+		if (send_back(socket, points)) {
+			socket->CloseSocket();
+			return 0;
+		}
         }
       }
+	
     }
-    
-  //------------------------------------------------------------
-  // Close connection (The example code never reaches to this section ...)
-  
+      
   socket->CloseSocket();
 
 }
@@ -279,14 +317,17 @@ int ReceiveImage(igtl::Socket * socket, igtl::MessageHeader * header)
     int   svsize[3];        // sub-volume size
     int   svoffset[3];      // sub-volume offset
     int   scalarType;       // scalar type
+    int   endian;           // endian
 
     scalarType = imgMsg->GetScalarType();
+    endian = imgMsg->GetEndian();
     imgMsg->GetDimensions(size);
     imgMsg->GetSpacing(spacing);
     imgMsg->GetSubVolume(svsize, svoffset);
 
     std::cerr << "Device Name           : " << imgMsg->GetDeviceName() << std::endl;
     std::cerr << "Scalar Type           : " << scalarType << std::endl;
+    std::cerr << "Endian                : " << endian << std::endl;
     std::cerr << "Dimensions            : ("
               << size[0] << ", " << size[1] << ", " << size[2] << ")" << std::endl;
     std::cerr << "Spacing               : ("
@@ -337,7 +378,7 @@ int ReceiveStatus(igtl::Socket * socket, igtl::MessageHeader * header)
 
 
 #if OpenIGTLink_PROTOCOL_VERSION >= 2
-int ReceivePoint(igtl::Socket * socket, igtl::MessageHeader * header)
+int ReceivePoint(igtl::Socket * socket, igtl::MessageHeader * header, std::vector<igtl::PointElement::Pointer> &points)
 {
 
   std::cerr << "Receiving POINT data type." << std::endl;
@@ -368,6 +409,8 @@ int ReceivePoint(igtl::Socket * socket, igtl::MessageHeader * header)
 
       igtlFloat32 pos[3];
       pointElement->GetPosition(pos);
+
+	  points.push_back(pointElement);
 
       std::cerr << "========== Element #" << i << " ==========" << std::endl;
       std::cerr << " Name      : " << pointElement->GetName() << std::endl;
